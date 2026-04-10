@@ -1,0 +1,48 @@
+services:
+  pipeline-db:
+    image: mysql:8.0
+    container_name: pipeline-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: libros_db
+    volumes:
+      - pipeline_mysql_data:/var/lib/mysql
+    networks:
+      - pipeline-net
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-prootpassword"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  pipeline-web:
+    image: python:3.11-slim
+    container_name: pipeline-web
+    restart: unless-stopped
+    depends_on:
+      pipeline-db:
+        condition: service_healthy
+    working_dir: /app
+    volumes:
+      - .:/app
+    command: >
+      sh -c "pip install --no-cache-dir -r requirements.txt &&
+             python app.py"
+    environment:
+      DB_HOST: pipeline-db
+      DB_USER: root
+      DB_PASSWORD: rootpassword
+      DB_NAME: libros_db
+      SECRET_KEY: pipelineSecretKey789
+    ports:
+      - "5001:5000"
+    networks:
+      - pipeline-net
+
+volumes:
+  pipeline_mysql_data:
+
+networks:
+  pipeline-net:
+    driver: bridge

@@ -1,0 +1,42 @@
+services:
+  db:
+    image: mysql:8.0
+    container_name: libros-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: libros_db
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - libros-net
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-prootpassword"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  web:
+    image: urva123ishfaq/libros-app:latest
+    container_name: libros-web
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_HOST: db
+      DB_USER: root
+      DB_PASSWORD: rootpassword
+      DB_NAME: libros_db
+      SECRET_KEY: superSecretKey456
+    ports:
+      - "5000:5000"
+    networks:
+      - libros-net
+
+volumes:
+  mysql_data:
+
+networks:
+  libros-net:
+    driver: bridge

@@ -3,6 +3,7 @@ pipeline {
 
     environment {
         COMPOSE_FILE = 'docker-compose.pipeline.yml'
+        TEST_IMAGE = 'libros-tests:latest'
     }
 
     stages {
@@ -13,12 +14,23 @@ pipeline {
             }
         }
 
-        stage('Build') {
+        stage('Build Test Image') {
             steps {
-                echo "Building application inside Docker container..."
-                sh 'docker pull python:3.11-slim'
-                sh 'ls -la'
-                echo "Build stage complete."
+                echo "Building test Docker image..."
+                sh 'docker build -t libros-tests:latest ./libros-tests'
+                echo "Test image built successfully."
+            }
+        }
+
+        stage('Test') {
+            steps {
+                echo "Running Selenium tests..."
+                sh '''
+                    docker run --rm \
+                        --network libros-app_libros-net \
+                        libros-tests:latest
+                '''
+                echo "All tests passed!"
             }
         }
 
@@ -41,8 +53,21 @@ pipeline {
     }
 
     post {
+        always {
+            echo "Pipeline finished. Sending email..."
+            mail to: "${env.GIT_COMMITTER_EMAIL ?: 'qasimalik@gmail.com'}",
+                 subject: "Jenkins Pipeline - ${currentBuild.fullDisplayName} - ${currentBuild.currentResult}",
+                 body: """
+Pipeline: ${env.JOB_NAME}
+Build Number: ${env.BUILD_NUMBER}
+Result: ${currentBuild.currentResult}
+Build URL: ${env.BUILD_URL}
+
+Test Stage: ${currentBuild.currentResult == 'SUCCESS' ? 'All 20 Selenium tests PASSED' : 'Tests FAILED - check logs'}
+                 """
+        }
         success {
-            echo "Pipeline completed! App running on port 5001."
+            echo "Pipeline completed successfully! App running on port 5001."
         }
         failure {
             echo "Pipeline failed. Check logs above."

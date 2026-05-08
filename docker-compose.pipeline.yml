@@ -1,51 +1,37 @@
 services:
-  db:
+  pipeline-db:
     image: mysql:8.0
-    container_name: libros-db-test
+    container_name: pipeline-db
     restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: rootpassword
       MYSQL_DATABASE: libros_db
     networks:
-      - test-net
+      - pipeline-net
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-prootpassword"]
       interval: 10s
       timeout: 5s
       retries: 10
 
-  libros-web:
-    build: .
-    container_name: libros-web-test
+  pipeline-web:
+    image: urva123ishfaq/libros-app:latest
+    container_name: pipeline-web
+    restart: unless-stopped
     depends_on:
-      db:
+      pipeline-db:
         condition: service_healthy
     environment:
-      DB_HOST: db
+      DB_HOST: pipeline-db
       DB_USER: root
       DB_PASSWORD: rootpassword
       DB_NAME: libros_db
       SECRET_KEY: superSecretKey456
+    ports:
+      - "5001:5000"
     networks:
-      - test-net
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-
-  tests:
-    build:
-      context: ./libros-tests
-    container_name: libros-tests
-    depends_on:
-      libros-web:
-        condition: service_healthy
-    networks:
-      - test-net
-    volumes:
-      - ./test-results:/tests
+      - pipeline-net
 
 networks:
-  test-net:
+  pipeline-net:
     driver: bridge

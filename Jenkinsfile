@@ -50,10 +50,30 @@ pipeline {
     post {
         always {
             script {
-                def pusherEmail = sh(
-                    script: "git log -1 --pretty=format:'%ae'",
-                    returnStdout: true
-                ).trim()
+                // Try to get pusher email from GitHub webhook payload first
+                // then fall back to git log
+                def pusherEmail = ''
+
+                try {
+                    pusherEmail = env.GITHUB_PUSHER_EMAIL ?: ''
+                } catch (e) {
+                    pusherEmail = ''
+                }
+
+                if (!pusherEmail || !pusherEmail.contains('@')) {
+                    pusherEmail = sh(
+                        script: "git log -1 --pretty=format:'%ae'",
+                        returnStdout: true
+                    ).trim()
+                }
+
+                // If still not a valid email, use default
+                if (!pusherEmail || !pusherEmail.contains('@')) {
+                    pusherEmail = 'urvaishfaq1@gmail.com'
+                }
+
+                echo "Sending email to: ${pusherEmail}"
+
                 def status   = currentBuild.currentResult ?: 'UNKNOWN'
                 def jobName  = env.JOB_NAME
                 def buildNum = env.BUILD_NUMBER

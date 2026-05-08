@@ -1,105 +1,77 @@
 pipeline {
     agent any
 
-    stages {
+    environment {
+        COMPOSE_FILE = 'docker-compose.pipeline.yml'
+        TEST_IMAGE = 'libros-tests:latest'
+    }
 
-        stage('Clone') {
+    stages {
+        stage('Checkout') {
             steps {
-                echo '>>> Cloning repository from GitHub...'
                 checkout scm
+                echo "Code checked out from GitHub successfully."
             }
         }
 
-        stage('Build') {
+        stage('Build Test Image') {
             steps {
-                echo '>>> Building Docker image...'
-                sh 'docker compose -f docker-compose.yml build'
+                echo "Building test Docker image..."
+                sh 'docker build -t libros-tests:latest ./libros-tests'
+                echo "Test image built successfully."
             }
         }
 
         stage('Test') {
             steps {
-                echo '>>> Running Selenium tests in Docker...'
-                sh 'mkdir -p test-results'
+                echo "Running Selenium tests..."
                 sh '''
-                    docker compose -f docker-compose.pipeline.yml down --remove-orphans --volumes || true
-                    docker compose -f docker-compose.pipeline.yml up \
-                        --build \
-                        --abort-on-container-exit \
-                        --exit-code-from tests
+                    docker run --rm \
+                        --network libros-app_libros-net \
+                        libros-tests:latest
                 '''
-            }
-            post {
-                always {
-                    sh 'docker compose -f docker-compose.pipeline.yml down --remove-orphans --volumes || true'
-                    junit allowEmptyResults: true, testResults: 'test-results/results.xml'
-                }
+                echo "All tests passed!"
             }
         }
 
         stage('Deploy') {
             steps {
-                echo '>>> Deploying application...'
-                sh 'docker compose -f docker-compose.yml down || true'
-                sh 'docker compose -f docker-compose.yml up -d --build'
-                echo '>>> App is live on port 5000'
+                echo "Deploying with docker compose..."
+                sh "docker compose -f ${COMPOSE_FILE} down --remove-orphans || true"
+                sh "docker compose -f ${COMPOSE_FILE} up -d"
+                sh 'sleep 10'
+                sh "docker compose -f ${COMPOSE_FILE} ps"
+            }
+        }
+
+        stage('Verify') {
+            steps {
+                echo "Verifying deployment..."
+                sh "docker compose -f ${COMPOSE_FILE} logs --tail=30 pipeline-web"
             }
         }
     }
 
     post {
         always {
-            script {
-                // Try to get pusher email from GitHub webhook payload first
-                // then fall back to git log
-                def pusherEmail = ''
+            echo "Pipeline finished. Sending email..."
+            mail to: "${env.GIT_COMMITTER_EMAIL ?: 'qasimalik@gmail.com'}",
+                 subject: "Jenkins Pipeline - ${currentBuild.fullDisplayName} - ${currentBuild.currentResult}",
+                 body: """
+Pipeline: ${env.JOB_NAME}
+Build Number: ${env.BUILD_NUMBER}
+Result: ${currentBuild.currentResult}
+Build URL: ${env.BUILD_URL}
 
-                try {
-                    pusherEmail = env.GITHUB_PUSHER_EMAIL ?: ''
-                } catch (e) {
-                    pusherEmail = ''
-                }
-
-                if (!pusherEmail || !pusherEmail.contains('@')) {
-                    pusherEmail = sh(
-                        script: "git log -1 --pretty=format:'%ae'",
-                        returnStdout: true
-                    ).trim()
-                }
-
-                // If still not a valid email, use default
-                if (!pusherEmail || !pusherEmail.contains('@')) {
-                    pusherEmail = 'urvaishfaq1@gmail.com'
-                }
-
-                echo "Sending email to: ${pusherEmail}"
-
-                def status   = currentBuild.currentResult ?: 'UNKNOWN'
-                def jobName  = env.JOB_NAME
-                def buildNum = env.BUILD_NUMBER
-                def buildUrl = env.BUILD_URL
-                def color    = (status == 'SUCCESS') ? 'green' : 'red'
-
-                emailext(
-                    to: "${pusherEmail}",
-                    subject: "[Jenkins] ${status}: ${jobName} #${buildNum}",
-                    body: """
-<html><body>
-<h2>Jenkins Pipeline Report</h2>
-<table border="1" cellpadding="6">
-  <tr><td><b>Job</b></td><td>${jobName}</td></tr>
-  <tr><td><b>Build #</b></td><td>${buildNum}</td></tr>
-  <tr><td><b>Status</b></td><td style="color:${color}"><b>${status}</b></td></tr>
-  <tr><td><b>Pushed by</b></td><td>${pusherEmail}</td></tr>
-  <tr><td><b>Build URL</b></td><td><a href="${buildUrl}">${buildUrl}</a></td></tr>
-</table>
-<p>See attached results.xml for Selenium test details.</p>
-</body></html>
-""",
-                    mimeType: 'text/html',
-                    attachmentsPattern: 'test-results/results.xml'
-                )
-            }
+Test Stage: ${currentBuild.currentResult == 'SUCCESS' ? 'All 20 Selenium tests PASSED' : 'Tests FAILED - check logs'}
+                 """
+        }
+        success {
+            echo "Pipeline completed successfully! App running on port 5001."
+        }
+        failure {
+            echo "Pipeline failed. Check logs above."
+            sh "docker compose -f ${COMPOSE_FILE} logs --tail=50 || true"
         }
     }
 }

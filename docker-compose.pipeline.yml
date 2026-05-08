@@ -1,48 +1,51 @@
 services:
-  pipeline-db:
+  db:
     image: mysql:8.0
-    container_name: pipeline-db
+    container_name: libros-db-test
     restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: rootpassword
       MYSQL_DATABASE: libros_db
-    volumes:
-      - pipeline_mysql_data:/var/lib/mysql
     networks:
-      - pipeline-net
+      - test-net
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-prootpassword"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
 
-  pipeline-web:
-    image: python:3.11-slim
-    container_name: pipeline-web
-    restart: unless-stopped
+  libros-web:
+    build: .
+    container_name: libros-web-test
     depends_on:
-      pipeline-db:
+      db:
         condition: service_healthy
-    working_dir: /app
-    volumes:
-      - .:/app
-    command: >
-      sh -c "pip install --no-cache-dir -r requirements.txt &&
-             python app.py"
     environment:
-      DB_HOST: pipeline-db
+      DB_HOST: db
       DB_USER: root
       DB_PASSWORD: rootpassword
       DB_NAME: libros_db
-      SECRET_KEY: pipelineSecretKey789
-    ports:
-      - "5001:5000"
+      SECRET_KEY: superSecretKey456
     networks:
-      - pipeline-net
+      - test-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
-volumes:
-  pipeline_mysql_data:
+  tests:
+    build:
+      context: ./libros-tests
+    container_name: libros-tests
+    depends_on:
+      libros-web:
+        condition: service_healthy
+    networks:
+      - test-net
+    volumes:
+      - ./test-results:/tests
 
 networks:
-  pipeline-net:
+  test-net:
     driver: bridge
